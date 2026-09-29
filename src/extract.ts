@@ -1,4 +1,4 @@
-import { getDocument, type PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, type PDFDocumentProxy, type PDFWorker } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { containsPoint, type Rect } from './geometry';
 import { findTemplate, type BlankTemplate } from './template';
 
@@ -83,11 +83,15 @@ function parseItems(items: PositionedText[], template: BlankTemplate): Parsed {
   return { ok: true, sender, recipient, trackNumber };
 }
 
-export async function extractShipment(fileName: string, bytes: Uint8Array): Promise<ExtractResult> {
+/**
+ * `worker` — общий воркер pdf.js на всю пачку; без него pdf.js поднимает отдельный Web Worker на каждый файл.
+ * Переданный воркер не уничтожается вместе с документом.
+ */
+export async function extractShipment(fileName: string, bytes: Uint8Array, worker?: PDFWorker): Promise<ExtractResult> {
   const fail = (error: ExtractError): ExtractResult => ({ ok: false, fileName, error });
 
   // pdf.js забирает переданный буфер — отдаём копию, оригинал нужен для render.
-  const task = getDocument({ data: bytes.slice(), verbosity: 0 });
+  const task = getDocument({ data: bytes.slice(), verbosity: 0, worker });
   let doc: PDFDocumentProxy;
   try {
     doc = await task.promise;
@@ -102,6 +106,8 @@ export async function extractShipment(fileName: string, bytes: Uint8Array): Prom
     if (page.rotate % 360 !== 0) return fail(makeError('unknown-format', 'страница повёрнута'));
 
     const [x0, y0, x1, y1] = page.view;
+    // Вырезка в render.ts считается от начала координат MediaBox — смещённую страницу не печатаем криво.
+    if (x0 !== 0 || y0 !== 0) return fail(makeError('unknown-format', 'страница смещена относительно начала координат'));
     const width = x1 - x0;
     const height = y1 - y0;
     const template = findTemplate(width, height);
@@ -132,4 +138,18 @@ export async function extractShipment(fileName: string, bytes: Uint8Array): Prom
   } finally {
     await task.destroy();
   }
+}
+
+/** Чтение файла пользователя + разбор; ошибка чтения (файл удалён, папка вместо файла) — тоже результат, не исключение. */
+export async function extractFile(
+  file: { name: string; arrayBuffer(): Promise<ArrayBuffer> },
+  worker?: PDFWorker,
+): Promise<ExtractResult> {
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return { ok: false, fileName: file.name, error: makeError('unreadable') };
+  }
+  return extractShipment(file.name, bytes, worker);
 }

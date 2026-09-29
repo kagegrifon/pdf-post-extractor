@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { classifyOpenError, collectZoneLines, extractShipment } from '../src/extract';
+import { PDFWorker } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDFDocument } from 'pdf-lib';
+import { describe, expect, it, vi } from 'vitest';
+import { classifyOpenError, collectZoneLines, extractFile, extractShipment } from '../src/extract';
 import { DEFAULT_TEXTS, makeBlank } from './fixtures/makeBlank';
 import { realDataAvailable, realExpected, realFiles } from './helpers/realData';
 
@@ -123,5 +125,41 @@ describe.skipIf(!realDataAvailable)('extractShipment (real samples in data/)', (
       const { sender, recipient, trackNumber } = res.shipment;
       expect({ sender, recipient, trackNumber }).toEqual(expected[file.name]);
     }
+  });
+});
+
+describe('extractFile', () => {
+  it('reports a file that cannot be read as unreadable instead of throwing', async () => {
+    const res = await extractFile({ name: 'gone.pdf', arrayBuffer: () => Promise.reject(new Error('NotReadableError')) });
+    expect(res).toEqual({ ok: false, fileName: 'gone.pdf', error: { code: 'unreadable', message: 'Не удалось прочитать файл' } });
+  });
+
+  it('extracts a readable file', async () => {
+    const bytes = await makeBlank();
+    const res = await extractFile({ name: 'ok.pdf', arrayBuffer: async () => bytes.slice().buffer });
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe('extractShipment with a shared worker', () => {
+  it('loads every document on the given worker and leaves it alive', async () => {
+    const worker = new PDFWorker();
+    const used = vi.spyOn(worker, 'promise', 'get');
+    try {
+      for (let i = 0; i < 2; i++) expect((await extractShipment('a.pdf', await makeBlank(), worker)).ok).toBe(true);
+      expect(used).toHaveBeenCalled();
+      expect(worker.destroyed).toBe(false);
+    } finally {
+      worker.destroy();
+    }
+  });
+});
+
+describe('extractShipment (page box offset)', () => {
+  it('rejects a page whose MediaBox does not start at the origin', async () => {
+    const doc = await PDFDocument.load(await makeBlank({ shift: { dx: 20, dy: -20 } }));
+    doc.getPage(0).setMediaBox(20, 20, 623.6, 311.8);
+    const e = await extractErr(await doc.save());
+    expect(e.code).toBe('unknown-format');
   });
 });

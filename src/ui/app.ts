@@ -1,5 +1,7 @@
 import robotoUrl from 'roboto-fontface/fonts/roboto/Roboto-Regular.woff?url';
-import { extractShipment } from '../extract';
+import { PDFWorker } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { extractFile } from '../extract';
+import { mapWithLimit } from '../pool';
 import { DEFAULT_PRESET_ID, getPreset, PRESETS } from '../presets';
 import { renderSheet, sheetFileName } from '../render';
 import {
@@ -11,6 +13,9 @@ import {
   resolveEntry,
   type FileEntry,
 } from '../state';
+
+/** Сколько файлов разбирается одновременно. */
+const EXTRACT_CONCURRENCY = 4;
 
 const MARKUP = `
   <header><h1>Отправления: печать фрагментов</h1></header>
@@ -58,6 +63,8 @@ export function mountApp(root: HTMLElement): void {
   const sheetStatus = $<HTMLParagraphElement>('#sheet-status');
   const preview = $<HTMLIFrameElement>('#preview');
 
+  // Один Web Worker pdf.js на всё приложение, а не по воркеру на каждый файл пачки.
+  const pdfWorker = new PDFWorker();
   let entries: FileEntry[] = [];
   let presetId = DEFAULT_PRESET_ID;
   let pdfUrl: string | null = null;
@@ -189,14 +196,17 @@ export function mountApp(root: HTMLElement): void {
     const batch = files.map((file) => ({ id: crypto.randomUUID(), fileName: file.name, file }));
     entries = addPending(entries, batch);
     renderList();
-    await Promise.all(
-      batch.map(async ({ id, fileName, file }) => {
-        const result = await extractShipment(fileName, new Uint8Array(await file.arrayBuffer()));
+    try {
+      await mapWithLimit(batch, EXTRACT_CONCURRENCY, async ({ id, file }) => {
+        // Сначала дождаться результата: `entries` нужно читать уже после await, иначе параллельные
+        // разборы затирают результаты друг друга.
+        const result = await extractFile(file, pdfWorker);
         entries = resolveEntry(entries, id, result);
         renderList();
-      }),
-    );
-    await rebuildSheet();
+      });
+    } finally {
+      await rebuildSheet();
+    }
   }
 
   drop.addEventListener('click', () => fileInput.click());

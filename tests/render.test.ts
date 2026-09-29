@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { extractShipment, type Shipment } from '../src/extract';
 import { LayoutError } from '../src/layout';
 import { getPreset } from '../src/presets';
-import { cellParagraphs, renderSheet, sheetFileName } from '../src/render';
+import { cellLines, cellParagraphs, renderSheet, sheetFileName } from '../src/render';
 import { makeBlank, ROBOTO_PATH } from './fixtures/makeBlank';
 import { decodePages } from './helpers/rasterize';
 import { realDataAvailable, realFiles } from './helpers/realData';
@@ -63,6 +63,27 @@ describe('helpers', () => {
   });
 });
 
+describe('cellLines', () => {
+  const byLength = (t: string) => t.length;
+  const words = (n: number, w: string) => Array(n).fill(w).join(' ');
+
+  it('keeps everything when it fits', () => {
+    expect(cellLines(['H', 's1', 's2', 'r1', 'r2'], 10, 10, byLength)).toEqual(['H', 's1', 's2', 'r1', 'r2']);
+  });
+
+  it('a long sender gets only the space the recipient does not need', () => {
+    const lines = cellLines(['H', words(20, 'ss'), 's', 'rr', 'r'], 2, 10, byLength);
+    expect(lines).toHaveLength(10);
+    expect(lines.slice(-2)).toEqual(['rr', 'r']);
+    expect(lines[7]).toBe('s…');
+  });
+
+  it('when both are long, each side gets half of the remaining lines', () => {
+    const lines = cellLines(['H', words(20, 'ss'), 's', words(20, 'rr'), 'r'], 2, 9, byLength);
+    expect(lines).toEqual(['H', 'ss', 'ss', 'ss', 's…', 'rr', 'rr', 'rr', 'r…']);
+  });
+});
+
 describe('renderSheet (synthetic)', () => {
   it('rejects an empty list', async () => {
     await expect(renderSheet({ shipments: [], preset: landscape, fontBytes })).rejects.toThrow('Нет отправлений');
@@ -105,6 +126,20 @@ describe('renderSheet (synthetic)', () => {
     expect(text).toContain('…');
     expect(text).toContain('?');
     expect(text).not.toContain('😀');
+  });
+
+  it('a very long sender never pushes the recipient out of the landscape cell', async () => {
+    const base = await syntheticShipment();
+    const sender = {
+      ...base.sender,
+      name: 'Федеральное государственное унитарное предприятие "Научно-производственное предприятие" '.repeat(2),
+      address: 'Российская Федерация, Свердловская область, город Тестовск, улица Очень Длинная, дом 1, корпус 2, '.repeat(3),
+    };
+    const bytes = await renderSheet({ shipments: [{ ...base, sender }], preset: landscape, fontBytes });
+    const [text] = await pdfText(bytes);
+    expect(text).toContain('Кому: ИП Проверкин');
+    expect(text).toContain('202000');
+    expect(text).toContain('…');
   });
 
   it('renders a batch of 60 shipments into 10 pages', async () => {

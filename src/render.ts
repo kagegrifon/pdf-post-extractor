@@ -5,7 +5,7 @@ import type { Rect } from './geometry';
 import { layoutPages, type Size } from './layout';
 import type { LayoutPreset } from './presets';
 import { getTemplate } from './template';
-import { fitParagraphs, sanitizeText } from './textwrap';
+import { fitParagraphs, sanitizeText, type Measure } from './textwrap';
 
 export interface RenderInput {
   shipments: Shipment[];
@@ -36,6 +36,26 @@ export function cellParagraphs(number: number, s: Shipment): string[] {
     `Кому: ${s.recipient.name}`,
     `${s.recipient.address}, ${s.recipient.index}`,
   ];
+}
+
+/**
+ * Строки ячейки: заголовок (1 строка), отправитель, получатель. Отправитель занимает не больше половины
+ * оставшихся строк, иначе длинные реквизиты отправителя вытесняют получателя из ячейки.
+ */
+export function cellLines(paragraphs: string[], maxWidth: number, maxLines: number, measure: Measure): string[] {
+  const [header, ...rest] = paragraphs;
+  const sender = rest.slice(0, 2);
+  const recipient = rest.slice(2);
+  const head = fitParagraphs([header], maxWidth, Math.min(1, maxLines), measure);
+  const left = maxLines - head.length;
+  const senderNeeds = fitParagraphs(sender, maxWidth, left, measure).length;
+  const senderLines = fitParagraphs(sender, maxWidth, Math.min(senderNeeds, Math.floor(left / 2)), measure);
+  const recipientLines = fitParagraphs(recipient, maxWidth, left - senderLines.length, measure);
+  if (recipientLines.length + senderLines.length < left && senderLines.length < senderNeeds) {
+    // Получателю хватило места — отдаём остаток отправителю.
+    return [...head, ...fitParagraphs(sender, maxWidth, left - recipientLines.length, measure), ...recipientLines];
+  }
+  return [...head, ...senderLines, ...recipientLines];
 }
 
 function fragmentSize(shipments: Shipment[]): Size {
@@ -71,7 +91,7 @@ function drawCellText(page: PDFPage, font: PDFFont, fontSize: number, r: Rect, p
   const lineHeight = fontSize * LINE_HEIGHT;
   const maxLines = Math.floor(r.height / lineHeight);
   const measure = (t: string) => font.widthOfTextAtSize(t, fontSize);
-  const lines = fitParagraphs(paragraphs, r.width, maxLines, measure);
+  const lines = cellLines(paragraphs, r.width, maxLines, measure);
   lines.forEach((line, i) => {
     page.drawText(line, { x: r.x, y: page.getHeight() - r.y - fontSize - i * lineHeight, size: fontSize, font });
   });
