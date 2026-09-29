@@ -1,1 +1,7 @@
-document.getElementById('app')!.textContent = 'Загрузка…';
+import { GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+import './styles.css';
+import { mountApp } from './ui/app';
+
+GlobalWorkerOptions.workerSrc = workerUrl;
+mountApp(document.getElementById('app')!);
