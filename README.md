@@ -16,6 +16,7 @@
 
     npm install
     npm run dev        # dev-сервер (service worker в dev не работает)
+    npm run lint       # линтер (Biome)
     npm test           # тесты; тесты на реальных бланках идут, только если есть data/expected.json
     npm run build      # сборка в dist/
     npm run preview    # проверка собранной версии, включая офлайн
@@ -24,10 +25,14 @@
 
 ## Выпуск обновления
 
-1. Поднять `version` в `package.json`.
-2. `npm run build`.
-3. Выложить содержимое `dist/` на хостинг (любой статический; для подкаталога —
-   `BASE_PATH=/имя-подкаталога/ npm run build`).
+1. Поднять `version` в `package.json` и влить изменения в `main`.
+2. Workflow **CI** (`.github/workflows/ci.yml`) прогонит линтер, тесты и сборку, после чего
+   job **Deploy to GitHub Pages** встанет в ожидание: откройте запуск во вкладке Actions →
+   *Review deployments* → отметьте `github-pages` → *Approve and deploy*.
+   Повторно выкатить `main` можно через *Run workflow* у workflow CI.
+
+Ручная выкладка на любой другой статический хостинг: `npm run build` и содержимое `dist/`
+(для подкаталога — `BASE_PATH=/имя-подкаталога/ npm run build`).
 
 Открытые приложения проверяют обновление при запуске и раз в час; пользователь увидит
 плашку «Доступна новая версия» и обновится по кнопке. Хостинг не должен кэшировать
