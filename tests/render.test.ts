@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
+import { PDFDocument, PDFName, type PDFNumber, PDFRawStream } from 'pdf-lib';
 import { describe, expect, it } from 'vitest';
 import { extractShipment, type Shipment } from '../src/extract';
 import { LayoutError } from '../src/layout';
