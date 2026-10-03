@@ -142,6 +142,22 @@ describe('renderSheet (synthetic)', () => {
     expect(text).toContain('…');
   });
 
+  it('f7b fragments (mark + barcode stacked) are lower, so 8 fit on a landscape page', async () => {
+    const s = await syntheticShipment({ format: 'f7b' });
+    const page = async (n: number) =>
+      (await PDFDocument.load(await renderSheet({ shipments: Array(n).fill(s), preset: landscape, fontBytes }))).getPageCount();
+    expect(await page(8)).toBe(1);
+    expect(await page(9)).toBe(2);
+  });
+
+  it('a mixed batch uses the larger envelope cell', async () => {
+    const env = await syntheticShipment();
+    const f7b = await syntheticShipment({ format: 'f7b' });
+    const shipments = [env, f7b, env, f7b, env, f7b, env];
+    const bytes = await renderSheet({ shipments, preset: landscape, fontBytes });
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBe(2);
+  });
+
   it('renders a batch of 60 shipments into 10 pages', async () => {
     const s = await syntheticShipment();
     const bytes = await renderSheet({ shipments: Array(60).fill(s), preset: landscape, fontBytes });

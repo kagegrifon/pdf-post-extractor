@@ -24,8 +24,10 @@ export const DEFAULT_TEXTS: Record<BlankField, string> = {
   track: '12345678901234',
 };
 
+export type BlankFormat = 'envelope' | 'f7b';
+
 /** Начало базовой линии (top-left, pt) и кегль — как в реальных бланках. */
-const POSITIONS: Record<BlankField, { x: number; y: number; size: number }> = {
+const ENVELOPE_POSITIONS: Record<BlankField, { x: number; y: number; size: number }> = {
   senderName: { x: 53, y: 21.8, size: 11 },
   senderAddress: { x: 53, y: 60.8, size: 11 },
   senderIndex: { x: 190, y: 114.8, size: 13 },
@@ -35,7 +37,23 @@ const POSITIONS: Record<BlankField, { x: number; y: number; size: number }> = {
   track: { x: 433.6, y: 160.5, size: 11.3 },
 };
 
+const F7B_POSITIONS: Record<BlankField, { x: number; y: number; size: number }> = {
+  senderName: { x: 45, y: 132.4, size: 8 },
+  senderAddress: { x: 45, y: 151.4, size: 8 },
+  senderIndex: { x: 141.4, y: 208, size: 14 },
+  recipientName: { x: 241, y: 132.4, size: 8 },
+  recipientAddress: { x: 241, y: 151.4, size: 8 },
+  recipientIndex: { x: 346.4, y: 208, size: 14 },
+  track: { x: 15.6, y: 282.4, size: 8 },
+};
+
+const FORMATS: Record<BlankFormat, { pageSize: [number, number]; positions: typeof ENVELOPE_POSITIONS }> = {
+  envelope: { pageSize: [623.6, 311.8], positions: ENVELOPE_POSITIONS },
+  f7b: { pageSize: [419.53, 595.28], positions: F7B_POSITIONS },
+};
+
 export interface BlankSpec {
+  format?: BlankFormat;
   pageSize?: [number, number];
   pages?: number;
   rotation?: number;
@@ -47,7 +65,8 @@ export interface BlankSpec {
 }
 
 export async function makeBlank(spec: BlankSpec = {}): Promise<Uint8Array> {
-  const [width, height] = spec.pageSize ?? [623.6, 311.8];
+  const format = FORMATS[spec.format ?? 'envelope'];
+  const [width, height] = spec.pageSize ?? format.pageSize;
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = await doc.embedFont(fs.readFileSync(ROBOTO_PATH), { subset: true });
@@ -60,12 +79,13 @@ export async function makeBlank(spec: BlankSpec = {}): Promise<Uint8Array> {
   const draw = (text: string, x: number, y: number, size: number) =>
     page.drawText(text, { x: x + dx, y: height - (y + dy), size, font });
 
-  for (const field of Object.keys(POSITIONS) as BlankField[]) {
+  for (const field of Object.keys(format.positions) as BlankField[]) {
     const text = texts[field];
     if (!text) continue;
-    const p = POSITIONS[field];
+    const p = format.positions[field];
     draw(text, p.x, p.y, p.size);
   }
+  if (spec.format === 'f7b') return doc.save();
   if (spec.recipientAddressLine2) draw(spec.recipientAddressLine2, 342, 234.5, 11);
   // Дубль индекса получателя крупным шрифтом, как PostIndex в оригинале.
   if (texts.recipientIndex) draw(`$${texts.recipientIndex}`, 25, 279.8, 48);

@@ -61,6 +61,22 @@ describe('extractShipment (synthetic blank)', () => {
     expect(s.trackNumber).toBe(DEFAULT_TEXTS.track);
   });
 
+  it('extracts an f7b parcel blank and glues the grouped track digits', async () => {
+    const s = await extractOk(await makeBlank({ format: 'f7b', texts: { track: '805160 26 39401 7' } }));
+    expect(s.templateId).toBe('russian-post-f7b-v1');
+    expect(s.trackNumber).toBe('80516026394017');
+    expect(s.sender).toEqual({
+      name: DEFAULT_TEXTS.senderName,
+      address: DEFAULT_TEXTS.senderAddress,
+      index: DEFAULT_TEXTS.senderIndex,
+    });
+    expect(s.recipient).toEqual({
+      name: DEFAULT_TEXTS.recipientName,
+      address: DEFAULT_TEXTS.recipientAddress,
+      index: DEFAULT_TEXTS.recipientIndex,
+    });
+  });
+
   it('joins the second address line that starts further left', async () => {
     const s = await extractOk(await makeBlank({ recipientAddressLine2: 'Свердловская' }));
     expect(s.recipient.address).toBe(`${DEFAULT_TEXTS.recipientAddress} Свердловская`);
