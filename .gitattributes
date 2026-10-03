@@ -1,0 +1,2 @@
+# LF везде, независимо от core.autocrlf на машине.
+* text=auto eol=lf
