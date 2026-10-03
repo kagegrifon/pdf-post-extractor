@@ -4,7 +4,7 @@ import type { Shipment } from './extract';
 import type { Rect } from './geometry';
 import { layoutPages, type Size } from './layout';
 import type { LayoutPreset } from './presets';
-import { getTemplate } from './template';
+import { getTemplate, stackCrops } from './template';
 import { fitParagraphs, sanitizeText, type Measure } from './textwrap';
 
 export interface RenderInput {
@@ -61,25 +61,29 @@ export function cellLines(paragraphs: string[], maxWidth: number, maxLines: numb
 function fragmentSize(shipments: Shipment[]): Size {
   return shipments.reduce<Size>(
     (acc, s) => {
-      const { crop } = getTemplate(s.templateId);
-      return { width: Math.max(acc.width, crop.width), height: Math.max(acc.height, crop.height) };
+      const stack = stackCrops(getTemplate(s.templateId));
+      return { width: Math.max(acc.width, stack.width), height: Math.max(acc.height, stack.height) };
     },
     { width: 0, height: 0 },
   );
 }
 
-/** Фрагмент исходной страницы как Form XObject — исходные потоки картинок, без растеризации. */
-async function embedFragment(out: PDFDocument, s: Shipment): Promise<PDFEmbeddedPage> {
-  const { crop } = getTemplate(s.templateId);
+/** Вырезки исходной страницы как Form XObject — исходные потоки картинок, без растеризации. */
+async function embedFragments(out: PDFDocument, s: Shipment): Promise<PDFEmbeddedPage[]> {
+  const { crops } = getTemplate(s.templateId);
   const src = await PDFDocument.load(s.pdfBytes);
   const page = src.getPage(0);
   const h = page.getHeight();
-  return out.embedPage(page, {
-    left: crop.x,
-    right: crop.x + crop.width,
-    top: h - crop.y,
-    bottom: h - crop.y - crop.height,
-  });
+  return Promise.all(
+    crops.map((crop) =>
+      out.embedPage(page, {
+        left: crop.x,
+        right: crop.x + crop.width,
+        top: h - crop.y,
+        bottom: h - crop.y - crop.height,
+      }),
+    ),
+  );
 }
 
 /** Нижняя граница прямоугольника в координатах PDF (начало внизу). */
@@ -107,38 +111,46 @@ export async function renderSheet({ shipments, preset, fontBytes, date = new Dat
   const font = await out.embedFont(fontBytes, { subset: true });
   const supported = new Set(font.getCharacterSet());
   const clean = (t: string) => sanitizeText(t, supported);
-  const fragments = await Promise.all(shipments.map((s) => embedFragment(out, s)));
+  const fragments = await Promise.all(shipments.map((s) => embedFragments(out, s)));
 
   for (const layout of pages) {
     const page = out.addPage([layout.width, layout.height]);
     for (const cell of layout.cells) {
       const s = shipments[cell.index];
       const f = cell.fragment;
-      page.drawPage(fragments[cell.index], {
-        x: f.x,
-        y: pdfBottom(page, f),
-        xScale: preset.fragmentScale,
-        yScale: preset.fragmentScale,
-      });
-      page.drawRectangle({
-        x: f.x,
-        y: pdfBottom(page, f),
-        width: f.width,
-        height: f.height,
-        borderColor: CUT_LINE_COLOR,
-        borderWidth: 0.5,
-        borderDashArray: [3, 3],
-      });
-      if (preset.printNumberOnFragment) {
-        // Левый нижний угол вырезки пуст (штрихкод начинается на 40 pt правее) — вне поля тишины.
-        page.drawText(String(cell.index + 1), {
-          x: f.x + 2,
-          y: pdfBottom(page, f) + 2,
-          size: FRAGMENT_NUMBER_SIZE,
-          font,
-          color: NUMBER_COLOR,
+      const template = getTemplate(s.templateId);
+      const stack = stackCrops(template);
+      const scale = preset.fragmentScale;
+      // Ячейка рассчитана на самый крупный фрагмент пачки — свой прижимаем к правому верхнему углу.
+      const left = f.x + f.width - stack.width * scale;
+      stack.pieces.forEach((piece, i) => {
+        const r: Rect = {
+          x: left + piece.x * scale,
+          y: f.y + piece.y * scale,
+          width: piece.crop.width * scale,
+          height: piece.crop.height * scale,
+        };
+        page.drawPage(fragments[cell.index][i], { x: r.x, y: pdfBottom(page, r), xScale: scale, yScale: scale });
+        page.drawRectangle({
+          x: r.x,
+          y: pdfBottom(page, r),
+          width: r.width,
+          height: r.height,
+          borderColor: CUT_LINE_COLOR,
+          borderWidth: 0.5,
+          borderDashArray: [3, 3],
         });
-      }
+        if (preset.printNumberOnFragment && i === template.numberedCrop) {
+          // Левый нижний угол этой вырезки пуст и лежит вне поля тишины (см. template.ts).
+          page.drawText(String(cell.index + 1), {
+            x: r.x + 2,
+            y: pdfBottom(page, r) + 2,
+            size: FRAGMENT_NUMBER_SIZE,
+            font,
+            color: NUMBER_COLOR,
+          });
+        }
+      });
       drawCellText(page, font, preset.fontSize, cell.text, cellParagraphs(cell.index + 1, s).map(clean));
     }
   }
