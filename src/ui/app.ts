@@ -50,7 +50,7 @@ const MARKUP = `
   </footer>
 `;
 
-export function mountApp(root: HTMLElement): void {
+export function mountApp(root: HTMLElement): { hasFiles: () => boolean } {
   root.innerHTML = MARKUP;
   const $ = <T extends HTMLElement>(selector: string) => root.querySelector(selector) as T;
   const drop = $<HTMLDivElement>('#drop');
@@ -258,4 +258,6 @@ export function mountApp(root: HTMLElement): void {
   });
 
   renderList();
+
+  return { hasFiles: () => entries.length > 0 };
 }
