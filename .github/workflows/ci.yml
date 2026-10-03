@@ -38,6 +38,25 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Нужна история, чтобы прочитать package.json базового коммита.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # PR — версия выше, чем в целевой ветке; push в main — выше, чем в main до этого push (event.before).
+      # Ручной запуск повторно выкатывает уже проверенный main, поэтому шаг пропускается.
+      - name: Check version bump
+        if: github.event_name != 'workflow_dispatch'
+        run: node scripts/check-version.mjs "$BASE_REF"
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -61,7 +80,7 @@ jobs:
     # Деплоим только main и только после зелёных проверок.
     # Environment github-pages настроен с обязательным ревьюером — job ждёт approve в GitHub.
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [lint, test, build]
+    needs: [lint, test, build, version]
     runs-on: ubuntu-latest
     permissions:
       pages: write

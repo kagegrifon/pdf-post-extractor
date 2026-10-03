@@ -24,6 +24,14 @@ describe('PWA build output', () => {
     expect(sw).toContain('index.html');
   });
 
+  it('publishes version.json outside the precache so the deployed version is always visible', () => {
+    const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version as string;
+    const info = JSON.parse(fs.readFileSync(path.join(DIST, 'version.json'), 'utf8'));
+    expect(info.version).toBe(version);
+    expect(info.commit).toMatch(/^([0-9a-f]{7})?$/);
+    expect(fs.readFileSync(path.join(DIST, 'sw.js'), 'utf8')).not.toContain('version.json');
+  });
+
   it('bakes the package version into the bundle', () => {
     const version = JSON.parse(fs.readFileSync('package.json', 'utf8')).version as string;
     const js = fs
